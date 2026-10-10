@@ -1,0 +1,10 @@
+{
+  "runner": "dotnet",
+  "assembly": "CrystalCode.ApplyPatch.dll",
+  "types": [
+    "CrystalCode.ApplyPatch.Tools.ApplyPatchTool"
+  ],
+  "catalogs": ["work"],
+  "approval": "inherit",
+  "timeoutSeconds": 30
+}
