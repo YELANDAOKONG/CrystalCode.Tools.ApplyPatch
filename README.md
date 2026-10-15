@@ -16,7 +16,7 @@ This is a native dotnet tool set for [Crystal Code](https://github.com/YELANDAOK
 - **Text safety.** Updates refuse files that look binary, keep a leading UTF-8 BOM, and end the result with a newline. Adds end with a newline unless they are empty.
 - **Write-if-unchanged.** An Update is written only when the file still holds the exact bytes read during verification.
 - **Bounded.** One Add section may create at most 2 MiB, matching the host write limit. The manifest gives the set 30 seconds per call.
-- **Fits the host.** The set joins Work only and declares `approval: inherit`, so the host approval mode still decides when a patch runs. The tool receives the workspace through `CrystalCode.Tools.IHostTool`.
+- **Fits the host.** The set joins Work only and declares `approval: always`, so workspace-bounded patches pass automatically while the host still approves outside-workspace and forbidden classifications. `ApplyPatchTool` supplies its patch paths to the host before invocation through `CrystalCode.Tools.IHostToolApprovalClassifier`.
 
 ## Tools
 
@@ -63,7 +63,7 @@ An Update result keeps the leading UTF-8 BOM the file had and always ends with a
 
 ## Paths and limits
 
-Paths in a patch are workspace-relative or absolute. Every resolved path must stay inside the session workspace, and resolution follows symbolic links to their final target, so a link that points outside the workspace is refused. `.ssh`, `.gnupg`, and `.crystal/credentials.json` paths are refused outright. The tool does not decide approval: the host classifies the call like every other external Write + Workspace tool, so Default asks the operator, Full auto-passes a workspace-bounded write, and Review and Audit send the call to the reviewing model. Edit and Review do not auto-pass an external write. One Add section may create at most 2 MiB of contents (`2097152` bytes); larger additions fail before any file changes.
+Paths in a patch are workspace-relative or absolute. Every resolved path must stay inside the session workspace, and resolution follows symbolic links to their final target, so a link that points outside the workspace is refused. `.ssh`, `.gnupg`, and `.crystal/credentials.json` paths are refused outright. The tool pre-classifies every patch path before invocation: workspace-bounded patches are Write + Workspace, outside paths are Write + OutsideWorkspace, and credential paths are Forbidden. With an effective author declaration, workspace-bounded calls pass automatically; outside paths still ask or go to Review/Audit, and forbidden paths never fully auto-pass. One Add section may create at most 2 MiB of contents (`2097152` bytes); larger additions fail before any file changes.
 
 ## Install
 
@@ -85,4 +85,4 @@ dotnet test CrystalCode.Tools.ApplyPatch.sln
 dotnet publish CrystalCode.ApplyPatch/CrystalCode.ApplyPatch.csproj
 ```
 
-The production project adds no NuGet packages; the test project uses xUnit and Microsoft.NET.Test.Sdk only. `ApplyPatchTool` is the public `IHostTool` listed in `tools.json`; the host loads this class library in one isolated load context and wraps every call with its own approval, output truncation, and timeout. The patch language lives in `Patches`, and the workspace fence lives in `Workspace`, both covered by the test project.
+The production project adds no NuGet packages; the test project uses xUnit and Microsoft.NET.Test.Sdk only. `ApplyPatchTool` is the public `IHostTool` and `IHostToolApprovalClassifier` listed in `tools.json`; the host loads this class library in one isolated load context and wraps every call with its own approval, output truncation, and timeout. The patch language lives in `Patches`, and the workspace fence lives in `Workspace`, both covered by the test project.

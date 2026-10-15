@@ -5,6 +5,6 @@
     "CrystalCode.ApplyPatch.Tools.ApplyPatchTool"
   ],
   "catalogs": ["work"],
-  "approval": "inherit",
+  "approval": "always",
   "timeoutSeconds": 30
 }

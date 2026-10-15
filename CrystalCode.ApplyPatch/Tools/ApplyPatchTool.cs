@@ -12,7 +12,7 @@ namespace CrystalCode.ApplyPatch.Tools;
 /// <summary>
 /// Applies one file-oriented patch inside the workspace.
 /// </summary>
-public sealed class ApplyPatchTool : IHostTool
+public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
 {
     private const string ToolName = "apply_patch";
 
@@ -42,6 +42,68 @@ public sealed class ApplyPatchTool : IHostTool
 
     /// <inheritdoc />
     public ToolDefinition Definition => Tool;
+
+    /// <inheritdoc />
+    public ValueTask<HostToolApprovalClassification> ClassifyApprovalAsync(
+        ToolCall call,
+        ToolHostContext context,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return ValueTask.FromResult(ClassifyApproval(call, context));
+    }
+
+    /// <inheritdoc />
+    public HostToolApprovalClassification ClassifyApproval(
+        ToolCall call,
+        ToolHostContext context)
+    {
+        ArgumentNullException.ThrowIfNull(call);
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (!ApplyPatchArguments.TryRead(call.Arguments, out var patchText, out _)
+            || !PatchParser.TryParse(patchText, out var hunks, out _)
+            || hunks.Count == 0)
+        {
+            return new HostToolApprovalClassification(
+                "privileged",
+                "privilegedEscalation",
+                "apply_patch could not classify the patch",
+                RequirePrompt: true);
+        }
+
+        if (!WorkspaceFence.TryCreate(context.WorkspaceRoot, out var fence, out _))
+        {
+            return new HostToolApprovalClassification(
+                "privileged",
+                "privilegedEscalation",
+                "apply_patch workspace could not be classified",
+                RequirePrompt: true);
+        }
+
+        foreach (var hunk in hunks)
+        {
+            var pathClassification = ClassifyPath(fence, hunk.Path);
+            if (pathClassification is not null)
+            {
+                return pathClassification;
+            }
+
+            if (hunk is PatchUpdate { MovePath: not null } move)
+            {
+                pathClassification = ClassifyPath(fence, move.MovePath);
+                if (pathClassification is not null)
+                {
+                    return pathClassification;
+                }
+            }
+        }
+
+        return new HostToolApprovalClassification(
+            "write",
+            "workspace",
+            "Apply patch inside workspace");
+    }
 
     /// <inheritdoc />
     public async ValueTask<ToolOutput> InvokeAsync(
@@ -186,6 +248,29 @@ public sealed class ApplyPatchTool : IHostTool
             default:
                 throw new ArgumentOutOfRangeException(nameof(hunk));
         }
+    }
+
+    private static HostToolApprovalClassification? ClassifyPath(
+        WorkspaceFence fence,
+        string path)
+    {
+        if (WorkspaceFence.IsCredentialPath(path))
+        {
+            return new HostToolApprovalClassification(
+                "forbidden",
+                "privilegedEscalation",
+                "apply_patch credential path");
+        }
+
+        if (fence.TryResolve(path, out _, out _))
+        {
+            return null;
+        }
+
+        return new HostToolApprovalClassification(
+            "write",
+            "outsideWorkspace",
+            "Apply patch outside workspace");
     }
 
     private static async Task<ToolOutput> CommitAsync(

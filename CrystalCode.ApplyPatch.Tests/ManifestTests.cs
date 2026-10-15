@@ -21,7 +21,7 @@ public sealed class ManifestTests
         Assert.Equal(
             ["work"],
             root.GetProperty("catalogs").EnumerateArray().Select(item => item.GetString()!).ToArray());
-        Assert.Equal("inherit", root.GetProperty("approval").GetString());
+        Assert.Equal("always", root.GetProperty("approval").GetString());
         Assert.True(root.GetProperty("timeoutSeconds").GetInt32() > 0);
     }
 

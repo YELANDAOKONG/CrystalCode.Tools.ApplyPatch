@@ -24,6 +24,89 @@ public sealed class ApplyPatchToolTests
     }
 
     [Fact]
+    public async Task ClassifyApprovalAsync_ClassifiesThroughHostInterface()
+    {
+        IHostToolApprovalClassifier classifier = new ApplyPatchTool();
+        var patchText = "*** Begin Patch\n*** Add File: nested/new.txt\n+created\n*** End Patch";
+        var arguments = JsonSerializer.Serialize(new { patchText });
+
+        var classification = await classifier.ClassifyApprovalAsync(
+            new ToolCall("1", "apply_patch", arguments),
+            Context(Path.GetTempPath()));
+
+        Assert.Equal("write", classification.Risk);
+        Assert.Equal("workspace", classification.Authority);
+        Assert.False(classification.RequirePrompt);
+    }
+
+    [Fact]
+    public async Task ClassifyApprovalAsync_CanceledToken_ThrowsOperationCanceledException()
+    {
+        IHostToolApprovalClassifier classifier = new ApplyPatchTool();
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await classifier.ClassifyApprovalAsync(
+                new ToolCall("1", "apply_patch", "{}"),
+                Context(Path.GetTempPath()),
+                cancellation.Token));
+    }
+
+    [Fact]
+    public void ClassifiesWorkspacePatchAsWorkspaceWrite()
+    {
+        var patchText = "*** Begin Patch\n*** Add File: nested/new.txt\n+created\n*** End Patch";
+        var arguments = JsonSerializer.Serialize(new { patchText });
+        var classification = new ApplyPatchTool().ClassifyApproval(
+            new ToolCall("1", "apply_patch", arguments),
+            Context(Path.GetTempPath()));
+
+        Assert.Equal("write", classification.Risk);
+        Assert.Equal("workspace", classification.Authority);
+        Assert.False(classification.RequirePrompt);
+    }
+
+    [Fact]
+    public void ClassifiesOutsidePatchAsOutsideWorkspaceWrite()
+    {
+        var patchText = "*** Begin Patch\n*** Add File: ../outside.txt\n+created\n*** End Patch";
+        var arguments = JsonSerializer.Serialize(new { patchText });
+        var classification = new ApplyPatchTool().ClassifyApproval(
+            new ToolCall("1", "apply_patch", arguments),
+            Context(Path.GetTempPath()));
+
+        Assert.Equal("write", classification.Risk);
+        Assert.Equal("outsideWorkspace", classification.Authority);
+    }
+
+    [Fact]
+    public void ClassifiesCredentialPatchAsForbidden()
+    {
+        var patchText = "*** Begin Patch\n*** Add File: .ssh/id_rsa\n+secret\n*** End Patch";
+        var arguments = JsonSerializer.Serialize(new { patchText });
+        var classification = new ApplyPatchTool().ClassifyApproval(
+            new ToolCall("1", "apply_patch", arguments),
+            Context(Path.GetTempPath()));
+
+        Assert.Equal("forbidden", classification.Risk);
+        Assert.Equal("privilegedEscalation", classification.Authority);
+    }
+
+    [Fact]
+    public void MalformedPatchRequiresPromptAndFailsClosed()
+    {
+        var arguments = JsonSerializer.Serialize(new { patchText = "not a patch" });
+        var classification = new ApplyPatchTool().ClassifyApproval(
+            new ToolCall("1", "apply_patch", arguments),
+            Context(Path.GetTempPath()));
+
+        Assert.Equal("privileged", classification.Risk);
+        Assert.Equal("privilegedEscalation", classification.Authority);
+        Assert.True(classification.RequirePrompt);
+    }
+
+    [Fact]
     public async Task AppliesAddUpdateAndDeleteSections()
     {
         await UsingRoot(async root =>
