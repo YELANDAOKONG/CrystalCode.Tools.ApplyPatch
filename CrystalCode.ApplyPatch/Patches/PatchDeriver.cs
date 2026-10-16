@@ -5,7 +5,7 @@ namespace CrystalCode.ApplyPatch.Patches;
 /// <summary>
 /// Derives updated file text from update chunks. Lines are matched exactly
 /// first, then ignoring trailing whitespace, then trimmed, then ignoring
-/// Unicode quote, dash, and ellipsis differences.
+/// Unicode quote, dash, space, and ellipsis differences.
 /// </summary>
 internal static class PatchDeriver
 {
@@ -196,10 +196,16 @@ internal static class PatchDeriver
                 case '\u2010' or '\u2011' or '\u2012' or '\u2013' or '\u2014' or '\u2015':
                     builder.Append('-');
                     break;
+                case '\u2212':
+                    builder.Append('-');
+                    break;
                 case '\u2026':
                     builder.Append("...");
                     break;
-                case '\u00a0':
+                case '\u00a0'
+                    or '\u2002' or '\u2003' or '\u2004' or '\u2005' or '\u2006'
+                    or '\u2007' or '\u2008' or '\u2009' or '\u200a'
+                    or '\u202f' or '\u205f' or '\u3000':
                     builder.Append(' ');
                     break;
                 default:

@@ -35,6 +35,24 @@ public sealed class PatchDeriverTests
     }
 
     [Fact]
+    public void MatchesUnicodeMinusAndSpaces()
+    {
+        Assert.Equal("value - 2\n", Derive("value \u2212 1\n", Chunk(["value - 1"], ["value - 2"])));
+        Assert.Equal("hello there\n", Derive("hello\u2003world\n", Chunk(["hello world"], ["hello there"])));
+        Assert.Equal("hello there\n", Derive("hello\u3000world\n", Chunk(["hello world"], ["hello there"])));
+    }
+
+    [Fact]
+    public void UsesIndentedChangeContextInsteadOfAnEarlierLine()
+    {
+        Assert.Equal(
+            "section\nold\n  section\nnew\n",
+            Derive(
+                "section\nold\n  section\nold\n",
+                Chunk(["old"], ["new"], context: "  section")));
+    }
+
+    [Fact]
     public void PreservesTheBom()
     {
         Assert.Equal("\uFEFFnew\n", Derive("\uFEFFold\n", Chunk(["  old   "], ["new"])));

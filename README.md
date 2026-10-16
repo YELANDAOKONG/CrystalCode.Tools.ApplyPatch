@@ -11,7 +11,7 @@ This is a native dotnet tool set for [Crystal Code](https://github.com/YELANDAOK
 - **One call, many files.** Add, Update, and Delete sections live in one patch text, so a multi-file refactor is one tool call.
 - **Verify, then apply.** The patch is parsed and every Update is derived against the current file text before a single file changes. A parse or verification failure leaves every file untouched.
 - **Sequential apply with honest failures.** Sections apply in order. If a later section fails because a file appeared, changed, or could not be written, the earlier sections stay applied and the failure names the failing path and lists what was applied.
-- **OpenCode matching ladder.** Chunk lines match exactly first, then ignoring trailing whitespace, then trimmed, then ignoring Unicode quote, dash, and ellipsis differences; `*** End of File` anchors a chunk to the end of the file.
+- **OpenCode matching ladder.** Chunk lines match exactly first, then ignoring trailing whitespace, then trimmed, then ignoring Unicode quote, dash, space, and ellipsis differences; `*** End of File` anchors a chunk to the end of the file.
 - **Workspace fence.** Paths resolve against the session workspace, following symbolic links to their final target. Paths inside it are workspace writes. Paths outside it, including `..` escapes and links that leave the root, stay resolved and are classified as outside-workspace writes for host approval. Credential paths are refused.
 - **Text safety.** Updates refuse files that look binary or are not valid UTF-8, keep a leading UTF-8 BOM, keep CRLF line endings when the file uses them, and end the result with a newline. Adds end with a newline unless they are empty. The same file cannot be updated more than once in one patch.
 - **Write-if-unchanged.** An Update is written only when the file still holds the exact bytes read during verification.
@@ -51,11 +51,11 @@ A call with an unknown property or a missing, empty, or non-string `patchText` f
 - `*** Delete File: <path>` removes one existing file. Nothing follows it.
 - `*** Move to: <path>` can follow an Update header, but moves are rejected before any change with `apply_patch moves are not supported yet.`
 
-The Begin and End markers may be surrounded by whitespace, the text may arrive wrapped in a `cat <<'EOF'` heredoc, and CRLF line endings are accepted. Sections apply in the order they appear. An Add may create parent directories; it refuses a path that already exists. An Update or Delete refuses a missing path and a directory.
+The Begin and End markers and the Add, Update, Delete, and Move headers may be surrounded by whitespace. A `*** End of File` marker before the first chunk is ignored. The text may arrive wrapped in a `cat <<'EOF'` heredoc, and CRLF line endings are accepted. Sections apply in the order they appear. An Add may create parent directories; it refuses a path that already exists. An Update or Delete refuses a missing path and a directory.
 
 ### Matching
 
-A chunk's context and removed lines are matched against the file in four passes, in order: exact equality, equality ignoring trailing whitespace, equality after trimming both sides, and equality after trimming and mapping Unicode curly quotes, dashes, ellipses, and no-break spaces to their ASCII forms. After a chunk is applied, later chunks in the same section continue after it.
+A chunk's context and removed lines are matched against the file in four passes, in order: exact equality, equality ignoring trailing whitespace, equality after trimming both sides, and equality after trimming and mapping Unicode curly quotes, dashes (including the minus sign), ellipses, and Unicode spaces to their ASCII forms. After a chunk is applied, later chunks in the same section continue after it. A bare empty line inside a chunk is a blank context line. Indentation after the space in a `@@` header is part of the change context.
 
 ### Text results
 

@@ -76,8 +76,14 @@ internal sealed class PatchParser
     private static bool IsMarker(string line, string marker) =>
         string.Equals(line.Trim(), marker, StringComparison.Ordinal);
 
-    private static bool IsSectionBoundary(string line) =>
-        IsMarker(line, EndMarker) || line.StartsWith("***", StringComparison.Ordinal);
+    private static bool IsSectionBoundary(string line)
+    {
+        var header = line.Trim();
+        return header.Equals(EndMarker, StringComparison.Ordinal)
+            || header.StartsWith(AddHeader, StringComparison.Ordinal)
+            || header.StartsWith(DeleteHeader, StringComparison.Ordinal)
+            || header.StartsWith(UpdateHeader, StringComparison.Ordinal);
+    }
 
     private static bool IsChunkBodyLine(string line) =>
         line.Length > 0 && line[0] is ' ' or '-' or '+';
@@ -90,7 +96,7 @@ internal sealed class PatchParser
         error = null;
         while (ok && _index < _end)
         {
-            var line = _lines[_index];
+            var line = _lines[_index].Trim();
             if (IsMarker(line, EndMarker))
             {
                 sawEnd = true;
@@ -128,7 +134,7 @@ internal sealed class PatchParser
 
     private bool TryReadAddSection(List<PatchHunk> hunks, out string? error)
     {
-        if (!TryReadPath(_lines[_index], AddHeader, "Invalid add file path.", out var path, out error))
+        if (!TryReadPath(_lines[_index].Trim(), AddHeader, "Invalid add file path.", out var path, out error))
         {
             return false;
         }
@@ -154,7 +160,7 @@ internal sealed class PatchParser
 
     private bool TryReadDeleteSection(List<PatchHunk> hunks, out string? error)
     {
-        if (!TryReadPath(_lines[_index], DeleteHeader, "Invalid delete file path.", out var path, out error))
+        if (!TryReadPath(_lines[_index].Trim(), DeleteHeader, "Invalid delete file path.", out var path, out error))
         {
             return false;
         }
@@ -166,22 +172,24 @@ internal sealed class PatchParser
 
     private bool TryReadUpdateSection(List<PatchHunk> hunks, out string? error)
     {
-        if (!TryReadPath(_lines[_index], UpdateHeader, "Invalid update file path.", out var path, out error))
+        if (!TryReadPath(_lines[_index].Trim(), UpdateHeader, "Invalid update file path.", out var path, out error))
         {
             return false;
         }
 
         _index++;
+        SkipEndOfFileMarkers();
         string? movePath = null;
-        if (_index < _end && _lines[_index].StartsWith(MoveHeader, StringComparison.Ordinal))
+        if (_index < _end && _lines[_index].Trim().StartsWith(MoveHeader, StringComparison.Ordinal))
         {
-            if (!TryReadPath(_lines[_index], MoveHeader, "Invalid move file path.", out var moved, out error))
+            if (!TryReadPath(_lines[_index].Trim(), MoveHeader, "Invalid move file path.", out var moved, out error))
             {
                 return false;
             }
 
             movePath = moved;
             _index++;
+            SkipEndOfFileMarkers();
         }
 
         if (!TryReadChunks(out var chunks, out error))
@@ -206,13 +214,22 @@ internal sealed class PatchParser
         while (_index < _end && !IsSectionBoundary(_lines[_index]))
         {
             var line = _lines[_index];
+            // A blank line or an end-of-file marker before the first chunk is
+            // not part of a hunk. A blank line after an end-of-file chunk is
+            // the same kind of separator.
+            if (line.Length == 0 || (chunks.Count == 0 && IsMarker(line, EndOfFileMarker)))
+            {
+                _index++;
+                continue;
+            }
+
             if (!line.StartsWith("@@", StringComparison.Ordinal))
             {
                 error = $"Invalid update file line: {line}";
                 return false;
             }
 
-            if (!TryReadChunk(line[2..].Trim(), out var chunk, out error))
+            if (!TryReadChunk(ChangeContext(line), out var chunk, out error))
             {
                 return false;
             }
@@ -221,6 +238,34 @@ internal sealed class PatchParser
         }
 
         return true;
+    }
+
+    private void SkipEndOfFileMarkers()
+    {
+        while (_index < _end && IsMarker(_lines[_index], EndOfFileMarker))
+        {
+            _index++;
+        }
+    }
+
+    /// <summary>
+    /// The space after <c>@@</c> separates the marker from the context.
+    /// Indentation after that space is part of the context line.
+    /// </summary>
+    private static string ChangeContext(string line)
+    {
+        var header = line.TrimEnd();
+        if (header.Length <= 2)
+        {
+            return "";
+        }
+
+        if (header[2] == ' ')
+        {
+            return header[3..];
+        }
+
+        return header[2..].Trim();
     }
 
     private bool TryReadChunk(
@@ -237,6 +282,16 @@ internal sealed class PatchParser
         while (_index < _end && !_lines[_index].StartsWith("@@", StringComparison.Ordinal))
         {
             var line = _lines[_index];
+            // A completely empty line is a blank context line. A line of only
+            // a space is a context line whose text is empty, and is not this case.
+            if (line.Length == 0)
+            {
+                oldLines.Add("");
+                newLines.Add("");
+                _index++;
+                continue;
+            }
+
             // A context, removal, or addition line owns its first character.
             // Otherwise a context line of "*** End Patch" would end the patch.
             if (IsChunkBodyLine(line))
@@ -272,6 +327,12 @@ internal sealed class PatchParser
             }
 
             error = $"Invalid update chunk line: {line}";
+            return false;
+        }
+
+        if (oldLines.Count == 0 && newLines.Count == 0)
+        {
+            error = "Update hunk does not contain any lines.";
             return false;
         }
 

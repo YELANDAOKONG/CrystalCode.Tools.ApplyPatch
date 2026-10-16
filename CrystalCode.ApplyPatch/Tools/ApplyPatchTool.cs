@@ -26,7 +26,7 @@ public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
         + "each section starts with *** Add File: <path>, *** Update File: <path>, or *** Delete File: <path>. "
         + "An Add section lists the initial contents as + lines. "
         + "An Update section contains @@ chunks; context lines start with a space, removed lines with -, and added lines with +. "
-        + "A chunk's context and removed lines are matched exactly first, then ignoring trailing whitespace, then trimmed, then ignoring Unicode quote, dash, and ellipsis differences. "
+        + "A chunk's context and removed lines are matched exactly first, then ignoring trailing whitespace, then trimmed, then ignoring Unicode quote, dash, space, and ellipsis differences. "
         + "A Delete section removes one existing file. "
         + "Paths are workspace-relative or absolute. "
         + "A path inside the workspace is a workspace write. "

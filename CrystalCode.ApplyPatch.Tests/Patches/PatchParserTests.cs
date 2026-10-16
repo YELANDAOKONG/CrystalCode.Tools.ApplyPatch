@@ -80,6 +80,26 @@ public sealed class PatchParserTests
     }
 
     [Fact]
+    public void ParsesAPaddedSectionHeader()
+    {
+        var hunks = Parse("*** Begin Patch\n  *** Update File: foo.txt\n@@\n-old\n+new\n*** End Patch");
+
+        var update = Assert.IsType<PatchUpdate>(Assert.Single(hunks));
+        Assert.Equal("foo.txt", update.Path);
+        Assert.Equal(["old"], Assert.Single(update.Chunks).OldLines);
+    }
+
+    [Fact]
+    public void ParsesAPaddedMoveHeader()
+    {
+        var hunks = Parse(
+            "*** Begin Patch\n*** Update File: old.txt\n  *** Move to: new.txt\n@@\n-old\n+new\n*** End Patch");
+
+        var update = Assert.IsType<PatchUpdate>(Assert.Single(hunks));
+        Assert.Equal("new.txt", update.MovePath);
+    }
+
+    [Fact]
     public void KeepsAContextLineThatMatchesTheEndMarker()
     {
         var hunks = Parse(
@@ -147,6 +167,38 @@ public sealed class PatchParserTests
     }
 
     [Fact]
+    public void IgnoresAnEndOfFileMarkerBeforeTheFirstChunk()
+    {
+        var hunks = Parse(
+            "*** Begin Patch\n*** Update File: file.txt\n*** End of File\n@@\n-old\n+new\n*** End Patch");
+
+        var chunk = Assert.Single(Assert.IsType<PatchUpdate>(Assert.Single(hunks)).Chunks);
+        Assert.False(chunk.EndOfFile);
+        Assert.Equal(["old"], chunk.OldLines);
+    }
+
+    [Fact]
+    public void ParsesAnEndOfFileMarkerBeforeAMove()
+    {
+        var hunks = Parse(
+            "*** Begin Patch\n*** Update File: old.txt\n*** End of File\n*** Move to: new.txt\n@@\n-old\n+new\n*** End Patch");
+
+        var update = Assert.IsType<PatchUpdate>(Assert.Single(hunks));
+        Assert.Equal("new.txt", update.MovePath);
+        Assert.False(Assert.Single(update.Chunks).EndOfFile);
+    }
+
+    [Fact]
+    public void SkipsABlankLineAfterTheEndOfFileMarker()
+    {
+        var hunks = Parse("*** Begin Patch\n*** Update File: file.txt\n@@\n+quux\n*** End of File\n\n*** End Patch");
+
+        var chunk = Assert.Single(Assert.IsType<PatchUpdate>(Assert.Single(hunks)).Chunks);
+        Assert.True(chunk.EndOfFile);
+        Assert.Equal(["quux"], chunk.NewLines);
+    }
+
+    [Fact]
     public void ParsesMultipleChunksInOneSection()
     {
         var hunks = Parse(
@@ -170,6 +222,48 @@ public sealed class PatchParserTests
         Assert.Null(update.Chunks[1].ChangeContext);
         Assert.Empty(update.Chunks[1].OldLines);
         Assert.Equal(["appended"], update.Chunks[1].NewLines);
+    }
+
+    [Fact]
+    public void KeepsChangeContextIndentation()
+    {
+        var hunks = Parse("*** Begin Patch\n*** Update File: file.txt\n@@   section\n-old\n+new\n*** End Patch");
+
+        var chunk = Assert.Single(Assert.IsType<PatchUpdate>(Assert.Single(hunks)).Chunks);
+        Assert.Equal("  section", chunk.ChangeContext);
+    }
+
+    [Fact]
+    public void KeepsAContextWithoutASpaceAfterTheMarker()
+    {
+        var hunks = Parse("*** Begin Patch\n*** Update File: file.txt\n@@section\n-old\n+new\n*** End Patch");
+
+        var chunk = Assert.Single(Assert.IsType<PatchUpdate>(Assert.Single(hunks)).Chunks);
+        Assert.Equal("section", chunk.ChangeContext);
+    }
+
+    [Fact]
+    public void ParsesABlankContextLine()
+    {
+        var hunks = Parse(
+            "*** Begin Patch\n*** Update File: file.txt\n@@\n context before\n\n context after\n*** End Patch");
+
+        var chunk = Assert.Single(Assert.IsType<PatchUpdate>(Assert.Single(hunks)).Chunks);
+        Assert.Equal(["context before", "", "context after"], chunk.OldLines);
+        Assert.Equal(["context before", "", "context after"], chunk.NewLines);
+    }
+
+    [Fact]
+    public void KeepsAnIndentedSectionHeaderAsContext()
+    {
+        var hunks = Parse(
+            "*** Begin Patch\n*** Update File: a.txt\n@@\n-old a\n+new a\n *** Update File: b.txt\n@@\n-old b\n+new b\n*** End Patch");
+
+        var update = Assert.IsType<PatchUpdate>(Assert.Single(hunks));
+        Assert.Equal("a.txt", update.Path);
+        Assert.Equal(["old a", "*** Update File: b.txt"], update.Chunks[0].OldLines);
+        Assert.Equal(["new a", "*** Update File: b.txt"], update.Chunks[0].NewLines);
+        Assert.Equal(["old b"], update.Chunks[1].OldLines);
     }
 
     [Fact]
@@ -228,6 +322,17 @@ public sealed class PatchParserTests
         Assert.Equal(
             "Expected at least one @@ chunk for update.txt.",
             ParseError("*** Begin Patch\n*** Update File: update.txt\n*** End Patch"));
+    }
+
+    [Fact]
+    public void RejectsAnEmptyChunk()
+    {
+        Assert.Equal(
+            "Update hunk does not contain any lines.",
+            ParseError("*** Begin Patch\n*** Update File: file.txt\n@@\n*** End Patch"));
+        Assert.Equal(
+            "Update hunk does not contain any lines.",
+            ParseError("*** Begin Patch\n*** Update File: file.txt\n@@\n*** End of File\n*** End Patch"));
     }
 
     [Fact]
