@@ -28,7 +28,10 @@ public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
         + "An Update section contains @@ chunks; context lines start with a space, removed lines with -, and added lines with +. "
         + "A chunk's context and removed lines are matched exactly first, then ignoring trailing whitespace, then trimmed, then ignoring Unicode quote, dash, and ellipsis differences. "
         + "A Delete section removes one existing file. "
-        + "Paths are workspace-relative or absolute and must stay inside the workspace. "
+        + "Paths are workspace-relative or absolute. "
+        + "A path inside the workspace is a workspace write. "
+        + "A path outside it is an outside-workspace write and follows host approval. "
+        + "Credential paths are refused. "
         + "Update and Delete require an existing regular file; Add refuses an existing file and creates parent directories. "
         + "The whole patch is verified before any file changes; sections then apply in order, and a failure reports the sections already applied. "
         + "Moves are not supported. Example:\n"
@@ -182,7 +185,7 @@ public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
             return (null, $"Unable to apply patch at {shown}: {pathError}");
         }
 
-        shown = fence.ToRelative(path);
+        shown = fence.Contains(path) ? fence.ToRelative(path) : path;
         switch (hunk)
         {
             case PatchAdd add:
@@ -282,21 +285,21 @@ public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
             return CredentialClassification();
         }
 
-        if (fence.TryResolve(path, out _, out var error))
+        if (!fence.TryResolve(path, out var fullPath, out var error))
         {
-            return null;
+            return error == WorkspaceFence.CredentialPathError
+                ? CredentialClassification()
+                : OutsideClassification();
         }
 
-        if (error == WorkspaceFence.CredentialPathError)
-        {
-            return CredentialClassification();
-        }
+        return fence.Contains(fullPath) ? null : OutsideClassification();
+    }
 
-        return new HostToolApprovalClassification(
+    private static HostToolApprovalClassification OutsideClassification() =>
+        new(
             "write",
             "outsideWorkspace",
             "Apply patch outside workspace");
-    }
 
     private static async Task<ToolOutput> CommitAsync(
         IReadOnlyList<PreparedChange> changes,

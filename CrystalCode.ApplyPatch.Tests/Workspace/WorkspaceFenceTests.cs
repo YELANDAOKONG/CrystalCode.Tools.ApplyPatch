@@ -21,20 +21,20 @@ public sealed class WorkspaceFenceTests
     }
 
     [Fact]
-    public void RefusesPathsOutsideTheRoot()
+    public void ResolvesPathsOutsideTheRoot()
     {
         UsingRoot(root =>
         {
             var fence = Fence(root);
 
-            Assert.False(fence.TryResolve("../escape.txt", out _, out var parentError));
-            Assert.Equal("the path is outside the workspace.", parentError);
+            Assert.True(fence.TryResolve("../escape.txt", out var parent, out var parentError), parentError);
+            Assert.False(fence.Contains(parent));
 
             var outside = Path.Combine(
                 Path.GetTempPath(),
                 "crystal-applypatch-outside-" + Guid.NewGuid().ToString("N") + ".txt");
-            Assert.False(fence.TryResolve(outside, out _, out var absoluteError));
-            Assert.Equal("the path is outside the workspace.", absoluteError);
+            Assert.True(fence.TryResolve(outside, out var absolute, out var absoluteError), absoluteError);
+            Assert.False(fence.Contains(absolute));
         });
     }
 
@@ -57,7 +57,7 @@ public sealed class WorkspaceFenceTests
     }
 
     [Fact]
-    public void RefusesASymbolicLinkThatLeavesTheRoot()
+    public void ResolvesASymbolicLinkThatLeavesTheRoot()
     {
         UsingRoot(root =>
         {
@@ -70,8 +70,8 @@ public sealed class WorkspaceFenceTests
 
             try
             {
-                Assert.False(fence.TryResolve("link.txt", out _, out var error));
-                Assert.Equal("the path is outside the workspace.", error);
+                Assert.True(fence.TryResolve("link.txt", out var fullPath, out var error), error);
+                Assert.False(fence.Contains(fullPath));
                 Assert.Equal("secret", File.ReadAllText(outside));
             }
             finally

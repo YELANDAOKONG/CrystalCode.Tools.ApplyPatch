@@ -1,17 +1,16 @@
 namespace CrystalCode.ApplyPatch.Workspace;
 
 /// <summary>
-/// Resolves patch paths inside one workspace root. Paths outside the root,
-/// credential paths, and symbolic links that leave the root are refused.
-/// Resolution follows symbolic links to their final target.
+/// Resolves patch paths against one workspace root. Resolution follows
+/// symbolic links to their final target. Credential paths are refused. A
+/// path outside the root stays resolved so the host can classify it as an
+/// outside-workspace write.
 /// </summary>
 internal sealed class WorkspaceFence
 {
     private const int MaximumLinkHops = 40;
 
     internal const string CredentialPathError = "editing credential paths is not allowed.";
-
-    internal const string OutsideWorkspaceError = "the path is outside the workspace.";
 
     private readonly string _root;
 
@@ -94,15 +93,14 @@ internal sealed class WorkspaceFence
             return false;
         }
 
-        if (!IsInside(candidate))
-        {
-            error = OutsideWorkspaceError;
-            return false;
-        }
-
         fullPath = candidate;
         return true;
     }
+
+    /// <summary>
+    /// Reports whether a canonical path is inside the workspace root.
+    /// </summary>
+    public bool Contains(string fullPath) => IsInside(fullPath);
 
     /// <summary>
     /// Gets the workspace-relative display path with forward slashes.

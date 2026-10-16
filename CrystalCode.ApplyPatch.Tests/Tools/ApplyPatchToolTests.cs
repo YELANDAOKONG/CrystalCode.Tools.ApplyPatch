@@ -458,22 +458,28 @@ public sealed class ApplyPatchToolTests
     }
 
     [Fact]
-    public async Task RejectsAPathOutsideTheWorkspace()
+    public async Task AppliesAPathOutsideTheWorkspace()
     {
         await UsingRoot(async root =>
         {
             var outside = Path.Combine(
                 Path.GetTempPath(),
                 "crystal-applypatch-outside-" + Guid.NewGuid().ToString("N") + ".txt");
+            await File.WriteAllTextAsync(outside, "before\n");
+            try
+            {
+                var output = await Invoke(
+                    root,
+                    $"*** Begin Patch\n*** Update File: {outside}\n@@\n-before\n+after\n*** End Patch");
 
-            var output = await Invoke(
-                root,
-                $"*** Begin Patch\n*** Update File: {outside}\n@@\n-before\n+after\n*** End Patch");
-
-            Assert.Equal(ToolResultStatus.Failure, output.Status);
-            Assert.Equal(
-                $"Unable to apply patch at {outside}: the path is outside the workspace.",
-                output.Text);
+                Assert.Equal(ToolResultStatus.Success, output.Status);
+                Assert.Contains(outside, output.Text, StringComparison.Ordinal);
+                Assert.Equal("after\n", await File.ReadAllTextAsync(outside));
+            }
+            finally
+            {
+                File.Delete(outside);
+            }
         });
     }
 
