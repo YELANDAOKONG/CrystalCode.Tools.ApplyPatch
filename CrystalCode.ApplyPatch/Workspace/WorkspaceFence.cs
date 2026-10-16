@@ -9,6 +9,10 @@ internal sealed class WorkspaceFence
 {
     private const int MaximumLinkHops = 40;
 
+    internal const string CredentialPathError = "editing credential paths is not allowed.";
+
+    internal const string OutsideWorkspaceError = "the path is outside the workspace.";
+
     private readonly string _root;
 
     private WorkspaceFence(string root)
@@ -82,15 +86,17 @@ internal sealed class WorkspaceFence
             return false;
         }
 
-        if (!IsInside(candidate))
+        // Credential wins over the workspace boundary. A symlink can resolve
+        // to a credential path outside the root, and that must stay forbidden.
+        if (IsCredentialPath(trimmed) || IsCredentialPath(candidate))
         {
-            error = "the path is outside the workspace.";
+            error = CredentialPathError;
             return false;
         }
 
-        if (IsCredentialPath(trimmed) || IsCredentialPath(candidate))
+        if (!IsInside(candidate))
         {
-            error = "editing credential paths is not allowed.";
+            error = OutsideWorkspaceError;
             return false;
         }
 

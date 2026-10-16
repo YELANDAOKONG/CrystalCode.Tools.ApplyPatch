@@ -72,6 +72,16 @@ public sealed class PatchDeriverTests
     }
 
     [Fact]
+    public void PreservesCrlfLineEndings()
+    {
+        Assert.Equal(
+            "line 1\r\nline 2 updated\r\nline 3\r\n",
+            Derive(
+                "line 1\r\nline 2\r\nline 3\r\n",
+                Chunk(["line 2"], ["line 2 updated"])));
+    }
+
+    [Fact]
     public void MatchesEndOfFileChunksFromTheEnd()
     {
         Assert.Equal(
@@ -79,6 +89,26 @@ public sealed class PatchDeriverTests
             Derive(
                 "marker\nmiddle\nmarker\nend\n",
                 Chunk(["marker", "end"], ["marker changed", "end"], endOfFile: true)));
+    }
+
+    [Fact]
+    public void AnchorsEndOfFileChunksWhenTheEndMatchesLoosely()
+    {
+        Assert.Equal(
+            "marker\nend\nmarker\nchanged\n",
+            Derive(
+                "marker\nend\nmarker\nend   \n",
+                Chunk(["marker", "end"], ["marker", "changed"], endOfFile: true)));
+    }
+
+    [Fact]
+    public void DoesNotUseAnEarlierMatchForAnEndOfFileChunk()
+    {
+        Assert.Equal(
+            "the expected lines were not found:\nmarker\nend",
+            DeriveError(
+                "marker\nend\nother\n",
+                Chunk(["marker", "end"], ["marker", "changed"], endOfFile: true)));
     }
 
     [Fact]

@@ -16,6 +16,10 @@ public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
 {
     private const string ToolName = "apply_patch";
 
+    private static readonly Encoding StrictUtf8 = new UTF8Encoding(
+        encoderShouldEmitUTF8Identifier: false,
+        throwOnInvalidBytes: true);
+
     private const string ToolDescription =
         "Apply one patch containing add, update, and delete file operations. "
         + "The patch text starts with *** Begin Patch and ends with *** End Patch; "
@@ -144,6 +148,7 @@ public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
         }
 
         var changes = new List<PreparedChange>(hunks.Count);
+        var updatedPaths = new HashSet<string>(StringComparer.Ordinal);
         foreach (var hunk in hunks)
         {
             var (change, prepareError) = await PrepareAsync(fence, hunk, cancellationToken)
@@ -151,6 +156,12 @@ public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
             if (prepareError is not null)
             {
                 return Failure(prepareError);
+            }
+
+            if (change is PreparedUpdate && !updatedPaths.Add(change.Path))
+            {
+                return Failure(
+                    $"Unable to apply patch at {change.ShownPath}: the file is updated more than once in this patch.");
             }
 
             changes.Add(change!);
@@ -233,9 +244,21 @@ public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
                     return (null, $"Unable to apply patch at {shown}: the file looks binary and will not be edited.");
                 }
 
+                string decoded;
+                try
+                {
+                    decoded = StrictUtf8.GetString(original);
+                }
+                catch (DecoderFallbackException)
+                {
+                    return (
+                        null,
+                        $"Unable to apply patch at {shown}: the file is not valid UTF-8 and will not be edited.");
+                }
+
                 if (!PatchDeriver.TryDerive(
                         update.Chunks,
-                        Encoding.UTF8.GetString(original),
+                        decoded,
                         out var updated,
                         out var deriveError))
                 {
@@ -256,15 +279,17 @@ public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
     {
         if (WorkspaceFence.IsCredentialPath(path))
         {
-            return new HostToolApprovalClassification(
-                "forbidden",
-                "privilegedEscalation",
-                "apply_patch credential path");
+            return CredentialClassification();
         }
 
-        if (fence.TryResolve(path, out _, out _))
+        if (fence.TryResolve(path, out _, out var error))
         {
             return null;
+        }
+
+        if (error == WorkspaceFence.CredentialPathError)
+        {
+            return CredentialClassification();
         }
 
         return new HostToolApprovalClassification(
@@ -396,6 +421,12 @@ public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
         await using var stream = new FileStream(path, options);
         await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
     }
+
+    private static HostToolApprovalClassification CredentialClassification() =>
+        new(
+            "forbidden",
+            "privilegedEscalation",
+            "apply_patch credential path");
 
     private static bool LooksBinary(byte[] bytes)
     {

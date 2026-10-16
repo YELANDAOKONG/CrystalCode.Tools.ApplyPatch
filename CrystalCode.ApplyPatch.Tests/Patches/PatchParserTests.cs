@@ -80,6 +80,52 @@ public sealed class PatchParserTests
     }
 
     [Fact]
+    public void KeepsAContextLineThatMatchesTheEndMarker()
+    {
+        var hunks = Parse(
+            """
+            *** Begin Patch
+            *** Update File: update.txt
+            @@
+             *** End Patch
+            -old
+            +new
+            *** End Patch
+            """);
+
+        var update = Assert.IsType<PatchUpdate>(Assert.Single(hunks));
+        var chunk = Assert.Single(update.Chunks);
+        Assert.Equal(["*** End Patch", "old"], chunk.OldLines);
+        Assert.Equal(["*** End Patch", "new"], chunk.NewLines);
+        Assert.False(chunk.EndOfFile);
+    }
+
+    [Fact]
+    public void DoesNotTreatAContextLineAsTheEndMarker()
+    {
+        Assert.Equal(
+            "Invalid patch format: missing Begin/End markers.",
+            ParseError(
+                """
+                *** Begin Patch
+                *** Update File: update.txt
+                @@
+                 *** End Patch
+                -old
+                +new
+                """));
+    }
+
+    [Fact]
+    public void AcceptsAnIndentedEndMarker()
+    {
+        var hunks = Parse("*** Begin Patch\n*** Add File: add.txt\n+added\n   *** End Patch\n");
+
+        var add = Assert.IsType<PatchAdd>(Assert.Single(hunks));
+        Assert.Equal("added", add.Contents);
+    }
+
+    [Fact]
     public void ParsesTheEndOfFileMarker()
     {
         var hunks = Parse(

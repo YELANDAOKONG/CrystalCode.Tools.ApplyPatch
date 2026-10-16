@@ -19,7 +19,8 @@ internal static class PatchDeriver
 
     /// <summary>
     /// Applies every chunk to <paramref name="original"/>. The result keeps a
-    /// leading BOM and ends with a newline unless the file is empty.
+    /// leading BOM, keeps CRLF when the file uses it, and ends with a newline
+    /// unless the file is empty.
     /// </summary>
     public static bool TryDerive(
         IReadOnlyList<PatchChunk> chunks,
@@ -29,7 +30,13 @@ internal static class PatchDeriver
     {
         updated = "";
         var bom = original.StartsWith('\uFEFF');
-        var lines = (bom ? original[1..] : original).Split('\n').ToList();
+        var body = bom ? original[1..] : original;
+        // TrimEnd treats CR as whitespace, so matching on raw CRLF lines would
+        // rewrite only the edited region as LF. Strip CR first, then join with
+        // the file's own newline.
+        var newline = body.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        var normalized = body.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        var lines = normalized.Split('\n').ToList();
         if (lines.Count > 0 && lines[^1].Length == 0)
         {
             lines.RemoveAt(lines.Count - 1);
@@ -53,7 +60,7 @@ internal static class PatchDeriver
             lines.Add("");
         }
 
-        var text = string.Join("\n", lines);
+        var text = string.Join(newline, lines);
         var nextBom = text.StartsWith('\uFEFF');
         updated = bom || nextBom
             ? "\uFEFF" + (nextBom ? text[1..] : text)
@@ -138,6 +145,10 @@ internal static class PatchDeriver
                 {
                     return offset;
                 }
+
+                // An end-of-file chunk is anchored. A looser match at the end
+                // must win over an exact match earlier in the file.
+                continue;
             }
 
             for (var offset = start; offset <= lines.Count - pattern.Count; offset++)

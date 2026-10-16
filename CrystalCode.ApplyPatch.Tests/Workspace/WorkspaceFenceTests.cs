@@ -82,6 +82,34 @@ public sealed class WorkspaceFenceTests
     }
 
     [Fact]
+    public void RefusesASymbolicLinkToAnOutsideCredentialPath()
+    {
+        UsingRoot(root =>
+        {
+            var outside = Path.Combine(
+                Path.GetTempPath(),
+                "crystal-applypatch-ssh-" + Guid.NewGuid().ToString("N"));
+            var ssh = Path.Combine(outside, ".ssh");
+            Directory.CreateDirectory(ssh);
+            var secret = Path.Combine(ssh, "id_rsa");
+            try
+            {
+                File.WriteAllText(secret, "secret");
+                File.CreateSymbolicLink(Path.Combine(root, "link.txt"), secret);
+                var fence = Fence(root);
+
+                Assert.False(fence.TryResolve("link.txt", out _, out var error));
+                Assert.Equal("editing credential paths is not allowed.", error);
+                Assert.Equal("secret", File.ReadAllText(secret));
+            }
+            finally
+            {
+                Directory.Delete(outside, recursive: true);
+            }
+        });
+    }
+
+    [Fact]
     public void ResolvesASymbolicLinkInsideTheRoot()
     {
         UsingRoot(root =>

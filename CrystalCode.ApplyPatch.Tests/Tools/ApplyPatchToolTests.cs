@@ -81,6 +81,36 @@ public sealed class ApplyPatchToolTests
     }
 
     [Fact]
+    public void ClassifiesASymlinkToACredentialPathAsForbidden()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "crystal-applypatch-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var ssh = Path.Combine(root, ".ssh");
+        Directory.CreateDirectory(ssh);
+        var secret = Path.Combine(ssh, "id_rsa");
+        File.WriteAllText(secret, "secret");
+        File.CreateSymbolicLink(Path.Combine(root, "key-link"), secret);
+        try
+        {
+            var patchText = "*** Begin Patch\n*** Update File: key-link\n@@\n-secret\n+other\n*** End Patch";
+            var arguments = JsonSerializer.Serialize(new { patchText });
+            var classification = new ApplyPatchTool().ClassifyApproval(
+                new ToolCall("1", "apply_patch", arguments),
+                Context(root));
+
+            Assert.Equal("forbidden", classification.Risk);
+            Assert.Equal("privilegedEscalation", classification.Authority);
+            Assert.Equal("secret", File.ReadAllText(secret));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ClassifiesCredentialPatchAsForbidden()
     {
         var patchText = "*** Begin Patch\n*** Add File: .ssh/id_rsa\n+secret\n*** End Patch";
@@ -333,6 +363,79 @@ public sealed class ApplyPatchToolTests
             Assert.Equal(
                 "Unable to apply patch at binary.bin: the file looks binary and will not be edited.",
                 output.Text);
+        });
+    }
+
+    [Fact]
+    public async Task RejectsAnUpdateThatIsNotValidUtf8()
+    {
+        await UsingRoot(async root =>
+        {
+            var path = Path.Combine(root, "latin1.txt");
+            var original = new byte[] { 0x68, 0xFF, 0x69 };
+            await File.WriteAllBytesAsync(path, original);
+
+            var output = await Invoke(
+                root,
+                "*** Begin Patch\n*** Update File: latin1.txt\n@@\n-hi\n+hello\n*** End Patch");
+
+            Assert.Equal(ToolResultStatus.Failure, output.Status);
+            Assert.Equal(
+                "Unable to apply patch at latin1.txt: the file is not valid UTF-8 and will not be edited.",
+                output.Text);
+            Assert.Equal(original, await File.ReadAllBytesAsync(path));
+        });
+    }
+
+    [Fact]
+    public async Task PreservesCrlfLineEndings()
+    {
+        await UsingRoot(async root =>
+        {
+            var path = Path.Combine(root, "windows.txt");
+            await File.WriteAllBytesAsync(
+                path,
+                Encoding.UTF8.GetBytes("line 1\r\nline 2\r\n"));
+
+            var output = await Invoke(
+                root,
+                "*** Begin Patch\n*** Update File: windows.txt\n@@\n-line 2\n+line 2 updated\n*** End Patch");
+
+            Assert.Equal(ToolResultStatus.Success, output.Status);
+            Assert.Equal(
+                "line 1\r\nline 2 updated\r\n",
+                Encoding.UTF8.GetString(await File.ReadAllBytesAsync(path)));
+        });
+    }
+
+    [Fact]
+    public async Task RejectsASecondUpdateOfTheSameFile()
+    {
+        await UsingRoot(async root =>
+        {
+            var path = Path.Combine(root, "twice.txt");
+            await File.WriteAllTextAsync(path, "old\n");
+
+            var output = await Invoke(
+                root,
+                """
+                *** Begin Patch
+                *** Update File: twice.txt
+                @@
+                -old
+                +new
+                *** Update File: twice.txt
+                @@
+                -old
+                +newer
+                *** End Patch
+                """);
+
+            Assert.Equal(ToolResultStatus.Failure, output.Status);
+            Assert.Equal(
+                "Unable to apply patch at twice.txt: the file is updated more than once in this patch.",
+                output.Text);
+            Assert.Equal("old\n", await File.ReadAllTextAsync(path));
         });
     }
 

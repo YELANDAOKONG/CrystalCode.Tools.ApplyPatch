@@ -7,6 +7,9 @@ namespace CrystalCode.ApplyPatch.Patches;
 /// </summary>
 internal sealed class PatchParser
 {
+    private const string BeginMarker = "*** Begin Patch";
+    private const string EndMarker = "*** End Patch";
+    private const string EndOfFileMarker = "*** End of File";
     private const string AddHeader = "*** Add File:";
     private const string DeleteHeader = "*** Delete File:";
     private const string UpdateHeader = "*** Update File:";
@@ -39,16 +42,17 @@ internal sealed class PatchParser
     {
         var text = StripHeredoc(patchText.Trim());
         var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-        var begin = FindMarker(lines, "*** Begin Patch");
-        var end = FindMarker(lines, "*** End Patch");
-        if (begin == -1 || end == -1 || begin >= end)
+        var begin = FindMarker(lines, BeginMarker);
+        if (begin == -1)
         {
             hunks = [];
             error = "Invalid patch format: missing Begin/End markers.";
             return false;
         }
 
-        return new PatchParser(lines, begin + 1, end).TryReadHunks(out hunks, out error);
+        // The end marker is recognized while parsing. A pre-scan would treat a
+        // context line whose text is "*** End Patch" as the end of the patch.
+        return new PatchParser(lines, begin + 1, lines.Length).TryReadHunks(out hunks, out error);
     }
 
     private static string StripHeredoc(string text) =>
@@ -60,7 +64,7 @@ internal sealed class PatchParser
     {
         for (var index = 0; index < lines.Count; index++)
         {
-            if (string.Equals(lines[index].Trim(), marker, StringComparison.Ordinal))
+            if (IsMarker(lines[index], marker))
             {
                 return index;
             }
@@ -69,14 +73,30 @@ internal sealed class PatchParser
         return -1;
     }
 
+    private static bool IsMarker(string line, string marker) =>
+        string.Equals(line.Trim(), marker, StringComparison.Ordinal);
+
+    private static bool IsSectionBoundary(string line) =>
+        IsMarker(line, EndMarker) || line.StartsWith("***", StringComparison.Ordinal);
+
+    private static bool IsChunkBodyLine(string line) =>
+        line.Length > 0 && line[0] is ' ' or '-' or '+';
+
     private bool TryReadHunks(out IReadOnlyList<PatchHunk> hunks, out string? error)
     {
         var result = new List<PatchHunk>();
+        var sawEnd = false;
         var ok = true;
         error = null;
         while (ok && _index < _end)
         {
             var line = _lines[_index];
+            if (IsMarker(line, EndMarker))
+            {
+                sawEnd = true;
+                break;
+            }
+
             if (line.StartsWith(AddHeader, StringComparison.Ordinal))
             {
                 ok = TryReadAddSection(result, out error);
@@ -96,6 +116,12 @@ internal sealed class PatchParser
             }
         }
 
+        if (ok && !sawEnd)
+        {
+            error = "Invalid patch format: missing Begin/End markers.";
+            ok = false;
+        }
+
         hunks = result;
         return ok;
     }
@@ -109,7 +135,7 @@ internal sealed class PatchParser
 
         _index++;
         var contents = new List<string>();
-        while (_index < _end && !_lines[_index].StartsWith("***", StringComparison.Ordinal))
+        while (_index < _end && !IsSectionBoundary(_lines[_index]))
         {
             var line = _lines[_index];
             if (!line.StartsWith('+'))
@@ -177,7 +203,7 @@ internal sealed class PatchParser
     {
         chunks = [];
         error = null;
-        while (_index < _end && !_lines[_index].StartsWith("***", StringComparison.Ordinal))
+        while (_index < _end && !IsSectionBoundary(_lines[_index]))
         {
             var line = _lines[_index];
             if (!line.StartsWith("@@", StringComparison.Ordinal))
@@ -211,38 +237,42 @@ internal sealed class PatchParser
         while (_index < _end && !_lines[_index].StartsWith("@@", StringComparison.Ordinal))
         {
             var line = _lines[_index];
-            if (line == "*** End of File")
+            // A context, removal, or addition line owns its first character.
+            // Otherwise a context line of "*** End Patch" would end the patch.
+            if (IsChunkBodyLine(line))
+            {
+                if (line.StartsWith(' '))
+                {
+                    oldLines.Add(line[1..]);
+                    newLines.Add(line[1..]);
+                }
+                else if (line.StartsWith('-'))
+                {
+                    oldLines.Add(line[1..]);
+                }
+                else
+                {
+                    newLines.Add(line[1..]);
+                }
+
+                _index++;
+                continue;
+            }
+
+            if (IsMarker(line, EndOfFileMarker))
             {
                 endOfFile = true;
                 _index++;
                 break;
             }
 
-            if (line.StartsWith("***", StringComparison.Ordinal))
+            if (IsSectionBoundary(line))
             {
                 break;
             }
 
-            if (line.StartsWith(' '))
-            {
-                oldLines.Add(line[1..]);
-                newLines.Add(line[1..]);
-            }
-            else if (line.StartsWith('-'))
-            {
-                oldLines.Add(line[1..]);
-            }
-            else if (line.StartsWith('+'))
-            {
-                newLines.Add(line[1..]);
-            }
-            else
-            {
-                error = $"Invalid update chunk line: {line}";
-                return false;
-            }
-
-            _index++;
+            error = $"Invalid update chunk line: {line}";
+            return false;
         }
 
         chunk = new PatchChunk(

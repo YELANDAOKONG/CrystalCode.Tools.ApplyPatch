@@ -13,7 +13,7 @@ This is a native dotnet tool set for [Crystal Code](https://github.com/YELANDAOK
 - **Sequential apply with honest failures.** Sections apply in order. If a later section fails because a file appeared, changed, or could not be written, the earlier sections stay applied and the failure names the failing path and lists what was applied.
 - **OpenCode matching ladder.** Chunk lines match exactly first, then ignoring trailing whitespace, then trimmed, then ignoring Unicode quote, dash, and ellipsis differences; `*** End of File` anchors a chunk to the end of the file.
 - **Workspace fence.** Paths resolve inside the session workspace. Absolute paths outside it, `..` escapes, symbolic links that leave it, and credential paths are refused.
-- **Text safety.** Updates refuse files that look binary, keep a leading UTF-8 BOM, and end the result with a newline. Adds end with a newline unless they are empty.
+- **Text safety.** Updates refuse files that look binary or are not valid UTF-8, keep a leading UTF-8 BOM, keep CRLF line endings when the file uses them, and end the result with a newline. Adds end with a newline unless they are empty. The same file cannot be updated more than once in one patch.
 - **Write-if-unchanged.** An Update is written only when the file still holds the exact bytes read during verification.
 - **Bounded.** One Add section may create at most 2 MiB, matching the host write limit. The manifest gives the set 30 seconds per call.
 - **Fits the host.** The set joins Work only and declares `approval: always`, so workspace-bounded patches pass automatically while the host still approves outside-workspace and forbidden classifications. `ApplyPatchTool` supplies its patch paths to the host before invocation through `CrystalCode.Tools.IHostToolApprovalClassifier`.
@@ -59,11 +59,11 @@ A chunk's context and removed lines are matched against the file in four passes,
 
 ### Text results
 
-An Update result keeps the leading UTF-8 BOM the file had and always ends with a newline unless the file becomes empty. A file that does not end with a newline gains one. An Update whose file contains a null byte in its first 8192 bytes is refused as binary; Delete does not inspect file contents.
+An Update result keeps the leading UTF-8 BOM the file had, keeps CRLF line endings when the file uses them, and always ends with a newline unless the file becomes empty. A file that does not end with a newline gains one. An Update whose file contains a null byte in its first 8192 bytes is refused as binary, and a file that is not valid UTF-8 is refused too. Delete does not inspect file contents. A second Update of a path already updated in the same patch is rejected before any file changes.
 
 ## Paths and limits
 
-Paths in a patch are workspace-relative or absolute. Every resolved path must stay inside the session workspace, and resolution follows symbolic links to their final target, so a link that points outside the workspace is refused. `.ssh`, `.gnupg`, and `.crystal/credentials.json` paths are refused outright. The tool pre-classifies every patch path before invocation: workspace-bounded patches are Write + Workspace, outside paths are Write + OutsideWorkspace, and credential paths are Forbidden. With an effective author declaration, workspace-bounded calls pass automatically; outside paths still ask or go to Review/Audit, and forbidden paths never fully auto-pass. One Add section may create at most 2 MiB of contents (`2097152` bytes); larger additions fail before any file changes.
+Paths in a patch are workspace-relative or absolute. Every resolved path must stay inside the session workspace, and resolution follows symbolic links to their final target, so a link that points outside the workspace is refused. `.ssh`, `.gnupg`, and `.crystal/credentials.json` paths are refused outright. The tool pre-classifies every patch path before invocation, using the same symlink resolution as apply: workspace-bounded patches are Write + Workspace, outside paths are Write + OutsideWorkspace, and credential paths, including links that resolve to one, are Forbidden. With an effective author declaration, workspace-bounded calls pass automatically; outside paths still ask or go to Review/Audit, and forbidden paths never fully auto-pass. One Add section may create at most 2 MiB of contents (`2097152` bytes); larger additions fail before any file changes.
 
 ## Install
 
