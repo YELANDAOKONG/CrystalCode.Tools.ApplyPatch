@@ -482,9 +482,9 @@ public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
               "additionalProperties": false
             }
             """);
-        return new ToolDefinition(
+        return ToolDefinition.Json(
             ToolName,
-            document.RootElement.Clone(),
+            document.RootElement,
             ToolDescription);
     }
 }

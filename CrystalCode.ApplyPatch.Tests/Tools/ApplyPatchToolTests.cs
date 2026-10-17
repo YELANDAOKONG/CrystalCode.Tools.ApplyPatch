@@ -16,10 +16,12 @@ public sealed class ApplyPatchToolTests
         var definition = new ApplyPatchTool().Definition;
 
         Assert.Equal("apply_patch", definition.Name);
-        var properties = definition.InputSchema.GetProperty("properties");
+        var input = Assert.IsType<JsonToolInput>(definition.Input);
+        Assert.Equal(ToolInputKind.Json, input.Kind);
+        var properties = input.Schema.GetProperty("properties");
         Assert.True(properties.TryGetProperty("patchText", out _));
         Assert.True(properties.TryGetProperty("input", out _));
-        var alternatives = definition.InputSchema.GetProperty("oneOf").EnumerateArray();
+        var alternatives = input.Schema.GetProperty("oneOf").EnumerateArray();
         Assert.Contains(
             alternatives,
             branch => branch.GetProperty("required").EnumerateArray()
@@ -40,7 +42,7 @@ public sealed class ApplyPatchToolTests
         var arguments = JsonSerializer.Serialize(new { patchText });
 
         var classification = await classifier.ClassifyApprovalAsync(
-            new ToolCall("1", "apply_patch", arguments),
+            new ToolCall("1", "apply_patch", arguments, ToolInputKind.Json),
             Context(Path.GetTempPath()));
 
         Assert.Equal("write", classification.Risk);
@@ -57,7 +59,7 @@ public sealed class ApplyPatchToolTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
             await classifier.ClassifyApprovalAsync(
-                new ToolCall("1", "apply_patch", "{}"),
+                new ToolCall("1", "apply_patch", "{}", ToolInputKind.Json),
                 Context(Path.GetTempPath()),
                 cancellation.Token));
     }
@@ -68,7 +70,7 @@ public sealed class ApplyPatchToolTests
         var patchText = "*** Begin Patch\n*** Add File: nested/new.txt\n+created\n*** End Patch";
         var arguments = JsonSerializer.Serialize(new { patchText });
         var classification = new ApplyPatchTool().ClassifyApproval(
-            new ToolCall("1", "apply_patch", arguments),
+            new ToolCall("1", "apply_patch", arguments, ToolInputKind.Json),
             Context(Path.GetTempPath()));
 
         Assert.Equal("write", classification.Risk);
@@ -82,7 +84,7 @@ public sealed class ApplyPatchToolTests
         var input = "*** Begin Patch\n*** Add File: nested/new.txt\n+created\n*** End Patch";
         var arguments = JsonSerializer.Serialize(new { input });
         var classification = new ApplyPatchTool().ClassifyApproval(
-            new ToolCall("1", "apply_patch", arguments),
+            new ToolCall("1", "apply_patch", arguments, ToolInputKind.Json),
             Context(Path.GetTempPath()));
 
         Assert.Equal("write", classification.Risk);
@@ -96,7 +98,7 @@ public sealed class ApplyPatchToolTests
         var patchText = "*** Begin Patch\n*** Add File: ../outside.txt\n+created\n*** End Patch";
         var arguments = JsonSerializer.Serialize(new { patchText });
         var classification = new ApplyPatchTool().ClassifyApproval(
-            new ToolCall("1", "apply_patch", arguments),
+            new ToolCall("1", "apply_patch", arguments, ToolInputKind.Json),
             Context(Path.GetTempPath()));
 
         Assert.Equal("write", classification.Risk);
@@ -120,7 +122,7 @@ public sealed class ApplyPatchToolTests
             var patchText = "*** Begin Patch\n*** Update File: key-link\n@@\n-secret\n+other\n*** End Patch";
             var arguments = JsonSerializer.Serialize(new { patchText });
             var classification = new ApplyPatchTool().ClassifyApproval(
-                new ToolCall("1", "apply_patch", arguments),
+                new ToolCall("1", "apply_patch", arguments, ToolInputKind.Json),
                 Context(root));
 
             Assert.Equal("forbidden", classification.Risk);
@@ -139,7 +141,7 @@ public sealed class ApplyPatchToolTests
         var patchText = "*** Begin Patch\n*** Add File: .ssh/id_rsa\n+secret\n*** End Patch";
         var arguments = JsonSerializer.Serialize(new { patchText });
         var classification = new ApplyPatchTool().ClassifyApproval(
-            new ToolCall("1", "apply_patch", arguments),
+            new ToolCall("1", "apply_patch", arguments, ToolInputKind.Json),
             Context(Path.GetTempPath()));
 
         Assert.Equal("forbidden", classification.Risk);
@@ -151,7 +153,7 @@ public sealed class ApplyPatchToolTests
     {
         var arguments = JsonSerializer.Serialize(new { patchText = "not a patch" });
         var classification = new ApplyPatchTool().ClassifyApproval(
-            new ToolCall("1", "apply_patch", arguments),
+            new ToolCall("1", "apply_patch", arguments, ToolInputKind.Json),
             Context(Path.GetTempPath()));
 
         Assert.Equal("privileged", classification.Risk);
@@ -202,7 +204,7 @@ public sealed class ApplyPatchToolTests
                 new { input = "*** Begin Patch\n*** Add File: input.txt\n+created\n*** End Patch" });
 
             var output = await new ApplyPatchTool().InvokeAsync(
-                new ToolCall("1", "apply_patch", arguments),
+                new ToolCall("1", "apply_patch", arguments, ToolInputKind.Json),
                 Context(root));
 
             Assert.Equal(ToolResultStatus.Success, output.Status);
@@ -591,7 +593,7 @@ public sealed class ApplyPatchToolTests
             new { patchText = "*** Begin Patch\n*** Delete File: gone.txt\n*** End Patch" });
 
         var output = await new ApplyPatchTool().InvokeAsync(
-            new ToolCall("1", "apply_patch", arguments),
+            new ToolCall("1", "apply_patch", arguments, ToolInputKind.Json),
             new ToolHostContext("", "session", "default"));
 
         Assert.Equal(ToolResultStatus.Failure, output.Status);
@@ -604,7 +606,7 @@ public sealed class ApplyPatchToolTests
         await UsingRoot(async root =>
         {
             var output = await new ApplyPatchTool().InvokeAsync(
-                new ToolCall("1", "apply_patch", "{oops"),
+                new ToolCall("1", "apply_patch", "{oops", ToolInputKind.Json),
                 Context(root));
 
             Assert.Equal(ToolResultStatus.Failure, output.Status);
@@ -621,7 +623,8 @@ public sealed class ApplyPatchToolTests
                 new ToolCall(
                     "1",
                     "apply_patch",
-                    "{\"patchText\":\"*** Begin Patch\\n*** End Patch\",\"path\":\"/tmp\"}"),
+                    "{\"patchText\":\"*** Begin Patch\\n*** End Patch\",\"path\":\"/tmp\"}",
+                    ToolInputKind.Json),
                 Context(root));
 
             Assert.Equal(ToolResultStatus.Failure, output.Status);
@@ -639,7 +642,8 @@ public sealed class ApplyPatchToolTests
                     "1",
                     "apply_patch",
                     "{\"patchText\":\"*** Begin Patch\\n*** End Patch\","
-                    + "\"input\":\"*** Begin Patch\\n*** End Patch\"}"),
+                    + "\"input\":\"*** Begin Patch\\n*** End Patch\"}",
+                    ToolInputKind.Json),
                 Context(root));
 
             Assert.Equal(ToolResultStatus.Failure, output.Status);
@@ -653,7 +657,7 @@ public sealed class ApplyPatchToolTests
         await UsingRoot(async root =>
         {
             var output = await new ApplyPatchTool().InvokeAsync(
-                new ToolCall("1", "apply_patch", "{}"),
+                new ToolCall("1", "apply_patch", "{}", ToolInputKind.Json),
                 Context(root));
 
             Assert.Equal(ToolResultStatus.Failure, output.Status);
@@ -667,7 +671,7 @@ public sealed class ApplyPatchToolTests
         await UsingRoot(async root =>
         {
             var output = await new ApplyPatchTool().InvokeAsync(
-                new ToolCall("1", "apply_patch", "{\"patchText\":\"   \"}"),
+                new ToolCall("1", "apply_patch", "{\"patchText\":\"   \"}", ToolInputKind.Json),
                 Context(root));
 
             Assert.Equal(ToolResultStatus.Failure, output.Status);
@@ -679,7 +683,7 @@ public sealed class ApplyPatchToolTests
     {
         var arguments = JsonSerializer.Serialize(new { patchText });
         return await new ApplyPatchTool().InvokeAsync(
-            new ToolCall("1", "apply_patch", arguments),
+            new ToolCall("1", "apply_patch", arguments, ToolInputKind.Json),
             Context(root));
     }
 
