@@ -31,26 +31,50 @@ internal static class ApplyPatchArguments
                 return false;
             }
 
+            var hasPatchText = false;
+            var hasInput = false;
             foreach (var property in root.EnumerateObject())
             {
-                if (!string.Equals(property.Name, "patchText", StringComparison.Ordinal))
+                if (string.Equals(property.Name, "patchText", StringComparison.Ordinal))
                 {
-                    error = "Tool arguments must contain only patchText.";
-                    return false;
+                    hasPatchText = true;
+                    continue;
                 }
+
+                if (string.Equals(property.Name, "input", StringComparison.Ordinal))
+                {
+                    hasInput = true;
+                    continue;
+                }
+
+                error = "Tool arguments must contain only patchText or input.";
+                return false;
             }
 
-            if (!root.TryGetProperty("patchText", out var value)
-                || value.ValueKind != JsonValueKind.String)
+            if (hasPatchText && hasInput)
+            {
+                error = "Provide only one of patchText or input.";
+                return false;
+            }
+
+            if (!hasPatchText && !hasInput)
             {
                 error = "Argument 'patchText' must be a non-empty string.";
+                return false;
+            }
+
+            var name = hasPatchText ? "patchText" : "input";
+            if (!root.TryGetProperty(name, out var value)
+                || value.ValueKind != JsonValueKind.String)
+            {
+                error = $"Argument '{name}' must be a non-empty string.";
                 return false;
             }
 
             var text = value.GetString()!.Trim();
             if (text.Length == 0)
             {
-                error = "Argument 'patchText' must be a non-empty string.";
+                error = $"Argument '{name}' must be a non-empty string.";
                 return false;
             }
 

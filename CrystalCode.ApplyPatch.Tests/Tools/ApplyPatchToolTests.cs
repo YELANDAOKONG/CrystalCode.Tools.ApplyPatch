@@ -68,6 +68,20 @@ public sealed class ApplyPatchToolTests
     }
 
     [Fact]
+    public void ClassifiesInputPatchAsWorkspaceWrite()
+    {
+        var input = "*** Begin Patch\n*** Add File: nested/new.txt\n+created\n*** End Patch";
+        var arguments = JsonSerializer.Serialize(new { input });
+        var classification = new ApplyPatchTool().ClassifyApproval(
+            new ToolCall("1", "apply_patch", arguments),
+            Context(Path.GetTempPath()));
+
+        Assert.Equal("write", classification.Risk);
+        Assert.Equal("workspace", classification.Authority);
+        Assert.False(classification.RequirePrompt);
+    }
+
+    [Fact]
     public void ClassifiesOutsidePatchAsOutsideWorkspaceWrite()
     {
         var patchText = "*** Begin Patch\n*** Add File: ../outside.txt\n+created\n*** End Patch";
@@ -167,6 +181,26 @@ public sealed class ApplyPatchToolTests
                 await File.ReadAllTextAsync(Path.Combine(root, "nested", "new.txt")));
             Assert.Equal("after\n", await File.ReadAllTextAsync(Path.Combine(root, "update.txt")));
             Assert.False(File.Exists(Path.Combine(root, "remove.txt")));
+        });
+    }
+
+    [Fact]
+    public async Task AppliesAPatchPassedAsInput()
+    {
+        await UsingRoot(async root =>
+        {
+            var arguments = JsonSerializer.Serialize(
+                new { input = "*** Begin Patch\n*** Add File: input.txt\n+created\n*** End Patch" });
+
+            var output = await new ApplyPatchTool().InvokeAsync(
+                new ToolCall("1", "apply_patch", arguments),
+                Context(root));
+
+            Assert.Equal(ToolResultStatus.Success, output.Status);
+            Assert.Equal("Applied patch sequentially:\nA input.txt", output.Text);
+            Assert.Equal(
+                "created\n",
+                await File.ReadAllTextAsync(Path.Combine(root, "input.txt")));
         });
     }
 
@@ -582,7 +616,25 @@ public sealed class ApplyPatchToolTests
                 Context(root));
 
             Assert.Equal(ToolResultStatus.Failure, output.Status);
-            Assert.Equal("Tool arguments must contain only patchText.", output.Text);
+            Assert.Equal("Tool arguments must contain only patchText or input.", output.Text);
+        });
+    }
+
+    [Fact]
+    public async Task RejectsBothPatchTextAndInput()
+    {
+        await UsingRoot(async root =>
+        {
+            var output = await new ApplyPatchTool().InvokeAsync(
+                new ToolCall(
+                    "1",
+                    "apply_patch",
+                    "{\"patchText\":\"*** Begin Patch\\n*** End Patch\","
+                    + "\"input\":\"*** Begin Patch\\n*** End Patch\"}"),
+                Context(root));
+
+            Assert.Equal(ToolResultStatus.Failure, output.Status);
+            Assert.Equal("Provide only one of patchText or input.", output.Text);
         });
     }
 

@@ -30,7 +30,8 @@ This is a native dotnet tool set for [Crystal Code](https://github.com/YELANDAOK
 | :--- | :--- | :--- |
 | `patchText` | Required | The full patch text describing Add, Update, and Delete file operations |
 
-A call with an unknown property or a missing, empty, or non-string `patchText` fails with a plain-English message.
+`input` is accepted as a compatibility alias for `patchText`; provide exactly one of the two.
+A call with an unknown property, both aliases, or a missing, empty, or non-string value fails with a plain-English message.
 
 ## Patch format
 
