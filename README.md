@@ -29,8 +29,10 @@ This is a native dotnet tool set for [Crystal Code](https://github.com/YELANDAOK
 | Argument | Default | Meaning |
 | :--- | :--- | :--- |
 | `patchText` | Required | The full patch text describing Add, Update, and Delete file operations |
+| `input` | Alias | Compatibility alias for `patchText` |
 
-`input` is accepted as a compatibility alias for `patchText`; provide exactly one of the two.
+`patchText` is the primary name. `input` is exposed for function-style clients such as Codex;
+the schema requires exactly one of the two, and the tool rejects a call that provides both.
 A call with an unknown property, both aliases, or a missing, empty, or non-string value fails with a plain-English message.
 
 ## Patch format

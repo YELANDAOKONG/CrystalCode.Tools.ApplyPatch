@@ -16,9 +16,18 @@ public sealed class ApplyPatchToolTests
         var definition = new ApplyPatchTool().Definition;
 
         Assert.Equal("apply_patch", definition.Name);
+        var properties = definition.InputSchema.GetProperty("properties");
+        Assert.True(properties.TryGetProperty("patchText", out _));
+        Assert.True(properties.TryGetProperty("input", out _));
+        var alternatives = definition.InputSchema.GetProperty("oneOf").EnumerateArray();
         Assert.Contains(
-            definition.InputSchema.GetProperty("required").EnumerateArray(),
-            item => item.GetString() == "patchText");
+            alternatives,
+            branch => branch.GetProperty("required").EnumerateArray()
+                .Any(item => item.GetString() == "patchText"));
+        Assert.Contains(
+            alternatives,
+            branch => branch.GetProperty("required").EnumerateArray()
+                .Any(item => item.GetString() == "input"));
         Assert.NotNull(definition.Description);
         Assert.Contains("*** Begin Patch", definition.Description, StringComparison.Ordinal);
     }

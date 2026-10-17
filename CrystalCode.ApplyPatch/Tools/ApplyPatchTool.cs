@@ -22,7 +22,7 @@ public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
 
     private const string ToolDescription =
         "Apply one patch containing add, update, and delete file operations. "
-        + "Pass the full patch text as patchText; input is accepted as a compatibility alias. "
+        + "Pass the full patch text as patchText, or as input; provide exactly one. "
         + "The patch text starts with *** Begin Patch and ends with *** End Patch; "
         + "each section starts with *** Add File: <path>, *** Update File: <path>, or *** Delete File: <path>. "
         + "An Add section lists the initial contents as + lines. "
@@ -469,9 +469,16 @@ public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
                 "patchText": {
                   "type": "string",
                   "description": "The full patch text describing Add, Update, and Delete file operations."
+                },
+                "input": {
+                  "type": "string",
+                  "description": "Compatibility alias for patchText. Provide exactly one of patchText or input."
                 }
               },
-              "required": ["patchText"],
+              "oneOf": [
+                { "required": ["patchText"] },
+                { "required": ["input"] }
+              ],
               "additionalProperties": false
             }
             """);
