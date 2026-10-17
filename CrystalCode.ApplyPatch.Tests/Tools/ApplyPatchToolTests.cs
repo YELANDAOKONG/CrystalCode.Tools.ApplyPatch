@@ -149,16 +149,30 @@ public sealed class ApplyPatchToolTests
     }
 
     [Fact]
-    public void MalformedPatchRequiresPromptAndFailsClosed()
+    public void UnreadablePatchStaysPrivilegedWithoutForcingTheOperator()
     {
-        var arguments = JsonSerializer.Serialize(new { patchText = "not a patch" });
-        var classification = new ApplyPatchTool().ClassifyApproval(
-            new ToolCall("1", "apply_patch", arguments, ToolInputKind.Json),
-            Context(Path.GetTempPath()));
+        string[] patches =
+        [
+            "not a patch",
+            """
+            *** Begin Patch
+            *** Update File: SettingsStore.cs
+            *** Rename File: SettingsStore.cs
+            *** End Patch
+            """,
+            "*** Begin Patch\n*** End Patch"
+        ];
+        foreach (var patchText in patches)
+        {
+            var arguments = JsonSerializer.Serialize(new { patchText });
+            var classification = new ApplyPatchTool().ClassifyApproval(
+                new ToolCall("1", "apply_patch", arguments, ToolInputKind.Json),
+                Context(Path.GetTempPath()));
 
-        Assert.Equal("privileged", classification.Risk);
-        Assert.Equal("privilegedEscalation", classification.Authority);
-        Assert.True(classification.RequirePrompt);
+            Assert.Equal("privileged", classification.Risk);
+            Assert.Equal("privilegedEscalation", classification.Authority);
+            Assert.False(classification.RequirePrompt);
+        }
     }
 
     [Fact]

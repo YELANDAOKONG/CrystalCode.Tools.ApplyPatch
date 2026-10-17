@@ -69,6 +69,10 @@ public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
         ArgumentNullException.ThrowIfNull(call);
         ArgumentNullException.ThrowIfNull(context);
 
+        // An unreadable patch fails before any file changes. Leave the prompt
+        // optional so Review and Audit can allow it and return the error to
+        // the model. Ask and Deny still stop the call. Forcing the operator
+        // here stalls the turn on arguments that cannot write anything.
         if (!ApplyPatchArguments.TryRead(call.Arguments, out var patchText, out _)
             || !PatchParser.TryParse(patchText, out var hunks, out _)
             || hunks.Count == 0)
@@ -76,8 +80,7 @@ public sealed class ApplyPatchTool : IHostTool, IHostToolApprovalClassifier
             return new HostToolApprovalClassification(
                 "privileged",
                 "privilegedEscalation",
-                "apply_patch could not classify the patch",
-                RequirePrompt: true);
+                "apply_patch could not classify the patch");
         }
 
         if (!WorkspaceFence.TryCreate(context.WorkspaceRoot, out var fence, out _))
